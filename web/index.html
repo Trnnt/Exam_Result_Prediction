@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Exam Result Prediction</title>
+  <style>
+    :root { font-family: Arial, sans-serif; color: #182b3a; background: #f3f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { background: #164e63; color: white; padding: 24px max(20px, calc((100% - 960px) / 2)); }
+    header h1 { margin: 0; font-size: 27px; }
+    header p { margin: 5px 0 0; color: #d8edf2; }
+    main { max-width: 960px; margin: 24px auto; padding: 0 16px 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    section { background: white; border: 1px solid #dce4e8; border-radius: 10px; padding: 20px; }
+    h2 { margin: 0 0 5px; font-size: 19px; }
+    .hint { color: #60717d; font-size: 13px; margin: 0 0 16px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat { padding: 12px; border-radius: 8px; background: #f1f7f8; }
+    .stat span { display: block; color: #60717d; font-size: 12px; }
+    .stat strong { display: block; margin-top: 4px; font-size: 22px; }
+    form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; }
+    input, select { width: 100%; padding: 9px; border: 1px solid #cbd6dc; border-radius: 6px; background: white; color: inherit; font: inherit; }
+    button { grid-column: 1 / -1; padding: 11px 14px; background: #087e8b; color: white; border: 0; border-radius: 6px; font: inherit; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .65; cursor: wait; }
+    #result { display: none; margin-top: 14px; padding: 13px; border-radius: 7px; background: #edf7f2; border: 1px solid #cce6d7; }
+    .note { grid-column: 1 / -1; font-size: 12px; color: #60717d; line-height: 1.5; }
+    .error { color: #a13c32; }
+    @media (max-width: 700px) { main { grid-template-columns: 1fr; } }
+    @media (max-width: 430px) { form { grid-template-columns: 1fr; } button { grid-column: auto; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Exam Result Prediction</h1>
+    <p>Academic summary and pass or support estimate</p>
+  </header>
+  <main>
+    <section>
+      <h2>Dataset summary</h2>
+      <p class="hint">UCI Mathematics student records</p>
+      <div class="stats" id="metrics" aria-live="polite"><div class="stat">Loading data…</div></div>
+    </section>
+
+    <section>
+      <h2>Predict result</h2>
+      <p class="hint">Enter indicators available before the final result.</p>
+      <form id="predict-form">
+        <label>Weekly study time
+          <select name="studytime"><option value="1">Under 2 hours</option><option value="2" selected>2 to 5 hours</option><option value="3">5 to 10 hours</option><option value="4">Over 10 hours</option></select>
+        </label>
+        <label>Past class failures
+          <input name="failures" type="number" min="0" max="4" value="0" required>
+        </label>
+        <label>Absences
+          <input name="absences" type="number" min="0" max="93" value="4" required>
+        </label>
+        <label>First period grade (0–20)
+          <input name="G1" type="number" min="0" max="20" value="11" required>
+        </label>
+        <label>Second period grade (0–20)
+          <input name="G2" type="number" min="0" max="20" value="11" required>
+        </label>
+        <label>Extra school support
+          <select name="schoolsup"><option value="no" selected>No</option><option value="yes">Yes</option></select>
+        </label>
+        <label>Family study support
+          <select name="famsup"><option value="no">No</option><option value="yes" selected>Yes</option></select>
+        </label>
+        <label>Extra paid classes
+          <select name="paid"><option value="no" selected>No</option><option value="yes">Yes</option></select>
+        </label>
+        <button id="submit-btn" type="submit">Predict result</button>
+      </form>
+      <div id="result" role="status" aria-live="polite"></div>
+    </section>
+
+  </main>
+  <script>
+    const number = value => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+    async function loadAnalysis() {
+      const box = document.querySelector('#metrics');
+      try {
+        const response = await fetch('/analysis');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Could not load dataset summary.');
+        const cards = [
+          ['Student records', data.record_count],
+          ['Pass rate', `${number(data.pass_rate_pct)}%`],
+          ['Average final grade', `${number(data.average_final_grade)} / 20`],
+          ['Average absences', data.average_absences]
+        ];
+        box.innerHTML = cards.map(([label, value]) => `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`).join('');
+      } catch (error) {
+        box.innerHTML = `<div class="error">${error.message}</div>`;
+      }
+    }
+
+    document.querySelector('#predict-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = document.querySelector('#submit-btn');
+      const result = document.querySelector('#result');
+      const values = Object.fromEntries(new FormData(event.currentTarget));
+      for (const key of ['studytime', 'failures', 'absences', 'G1', 'G2']) values[key] = Number(values[key]);
+      button.disabled = true;
+      button.textContent = 'Predicting…';
+      result.style.display = 'block';
+      result.textContent = 'Calculating estimate…';
+      try {
+        const response = await fetch('/predict', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Prediction failed.');
+        result.innerHTML = `<strong>Predicted result: ${data.predicted_result}</strong><br>Estimated pass probability: ${data.pass_probability_pct}%<br><small>${data.support_summary}</small><br><small>${data.recommendation}</small>`;
+      } catch (error) {
+        result.innerHTML = `<span class="error">${error.message}</span>`;
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Predict result';
+      }
+    });
+
+    loadAnalysis();
+  </script>
+</body>
+</html>
